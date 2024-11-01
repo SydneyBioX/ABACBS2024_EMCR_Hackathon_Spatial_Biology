@@ -1,0 +1,112 @@
+---
+title: "ABACBS EMCR Hackathon - 1. Obtain annotated scRNA-seq pancreas reference"
+author: "Shila Ghazanfar"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+       html_document:
+                     toc: true
+                     toc_float:
+                           collapsed: false
+                           smooth_scroll: false
+                     code_folding: hide
+                     fig_width: 10 
+                     fig_height: 8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      cache.lazy = FALSE)
+
+set.seed(2024)
+```
+
+# Load packages and data
+Load scripts and packages.
+
+```{r}
+library(SingleCellExperiment) # for data structure
+library(zellkonverter) # for reading scRNAseq h5ad data
+library(scran) # for normalisation
+library(scater) # for visualisation
+library(randomForest) # for predictive model
+```
+
+In this document we take an annotated scRNA-seq pancreas dataset from the 
+Tabula Sapiens compendium, downloaded from the 
+[cellxgene](https://cellxgene.cziscience.com/) website. The direct download
+link can be found [here](https://datasets.cellxgene.cziscience.com/9af4585d-a1aa-4109-913f-6fe73772af70.h5ad).
+The data object is placed in the relative location `../rawData/`.
+
+We read the scRNA-seq data using the `readH5AD()` function to obtain a 
+SingleCellExperiment object, assign rownames as gene symbols, normalise the 
+counts according to overall library size, and then subset to features that are 
+present in the pancreas MoleculeExperiment object.
+
+```{r}
+me_feats = readRDS("../processedData/xenium_pancreas_features.Rds")
+sce = readH5AD("../rawData/9af4585d-a1aa-4109-913f-6fe73772af70.h5ad",
+               X_name = "counts")
+sce
+
+rownames(sce) <- make.unique(as.character(rowData(sce)$feature_name))
+sce <- logNormCounts(sce)
+
+feats = intersect(me_feats, rownames(sce))
+length(feats)
+
+sce <- sce[feats,]
+
+sce
+```
+
+Examine the cell type annotation within this dataset with the reduced number of 
+features.
+
+```{r, fig.width = 15, fig.height = 10}
+pancreas_colours = setNames(c("#A83279", "#4C9F70", "#E5D352", "#BB77C1", "#42A1F7", 
+                              "#F98B60", "#7D59CE", "#FFD23F", "#6D7F99", "#63B7AF",
+                              "#EF6F6C", "#46B5B3", "#C1B2AB", "#D6E3C4", "#FF677D"),
+                            sort(unique(sce$cell_type)))
+
+sort(table(sce$cell_type))
+
+sce <- runPCA(sce, ncomponents = 15)
+sce <- runUMAP(sce)
+
+g = plotReducedDim(sce, "UMAP", colour_by = "cell_type") + 
+  scale_colour_manual(values = pancreas_colours)
+g
+```
+
+# Fit cell type prediction model
+
+We will fit a relatively simple Random Forest model to predict cell type using
+the logcounts of the scRNA-seq data. We will use only the features that are 
+common between the scRNA-seq and Xenium data.
+
+```{r}
+fit = randomForest(x = t(as.matrix(assay(sce, "logcounts"))),
+                   y = sce$cell_type)
+fit
+```
+
+# Save the objects
+
+We save the SingleCellExperiment object in the `../ProcessedData/` folder. We 
+also save the fitted Random Forest object and place it in the `../analysisOutput/`
+folder.
+
+```{r}
+saveRDS(sce, file = "../processedData/sc_pancreas_sce.Rds")
+saveRDS(fit, file = "../analysisOutput/sc_cell_type_RF_fit.Rds")
+saveRDS(pancreas_colours, file = "../analysisOutput/pancreas_colours.Rds")
+```
+
+# Finish
+
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,113 @@
+---
+title: "ABACBS EMCR Hackathon - 2. Summarise MoleculeExperiments and predict cell types"
+author: "Shila Ghazanfar"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+       html_document:
+                     toc: true
+                     toc_float:
+                           collapsed: false
+                           smooth_scroll: false
+                     code_folding: hide
+                     fig_width: 10 
+                     fig_height: 8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      cache.lazy = FALSE)
+
+set.seed(2024)
+```
+
+# Load packages and data
+Load scripts and packages. Load the processed data we generated earlier.
+
+```{r}
+library(MoleculeExperiment) # for data structure
+library(SpatialExperiment) # for data structure
+library(randomForest) # for predictive model
+library(scater) # for plotting
+library(patchwork) # for plotting
+```
+
+```{r}
+pancreas_colours = readRDS("../analysisOutput/pancreas_colours.Rds")
+fit = readRDS("../analysisOutput/sc_cell_type_RF_fit.Rds")
+feats = rownames(fit$importance)
+me = readRDS("../processedData/xenium_pancreas_me.Rds")
+me
+```
+
+In this document we take the MoleculeExperiment object, summarise to 
+SpatialExperiment and perform cell type prediction on both assays.
+
+# Count molecules over boundaries
+
+We use the `countMolecules` function to count the molecules over the bounaries
+for either cells or tiles. This generates SpatialExperiment objects with 
+different numbers of cells/tiles.
+
+We also perform filtering and logcount normalisation.
+
+```{r}
+spe_cells = countMolecules(me, boundariesAssay = "cell")[feats,]
+spe_tiles = countMolecules(me, boundariesAssay = "tiles")[feats,]
+
+spe_cells = addPerCellQCMetrics(spe_cells)
+spe_tiles = addPerCellQCMetrics(spe_tiles)
+
+spe_cells = logNormCounts(spe_cells[, spe_cells$total >= 5])
+spe_tiles = logNormCounts(spe_tiles[, spe_tiles$total >= 5])
+
+spe_cells
+spe_tiles
+```
+
+# Predict cell types
+
+```{r}
+pred_cells = predict(fit, newdata = as.matrix(t(assay(spe_cells, "logcounts"))))
+spe_cells$cell_type_pred <- pred_cells
+
+pred_tiles = predict(fit, newdata = as.matrix(t(assay(spe_tiles, "logcounts"))))
+spe_tiles$cell_type_pred <- pred_tiles
+```
+
+# Plots
+
+Generate plots of cells/tiles in space coloured by predicted cell type
+
+```{r, fig.width = 15, fig.height = 20}
+g = plotReducedDim(spe_cells, "spatial",
+                   colour_by = "cell_type_pred", point_size = 0.5) + 
+  ggtitle("cells") +
+  scale_colour_manual(values = pancreas_colours) +
+  coord_fixed() +
+  plotReducedDim(spe_tiles, "spatial",
+                 colour_by = "cell_type_pred", point_size = 0.5) + 
+  ggtitle("tiles") + 
+  scale_colour_manual(values = pancreas_colours) + 
+  coord_fixed() +
+  plot_layout(nrow = 2) +
+  NULL
+g
+```
+
+# Save the objects
+
+We save the two SpatialExperiment objects in the `../ProcessedData/` folder.
+
+```{r}
+saveRDS(spe_cells, file = "../processedData/xenium_pancreas_spe_cells.Rds")
+saveRDS(spe_tiles, file = "../processedData/xenium_pancreas_spe_tiles.Rds")
+```
+
+# Finish
+
+```{r}
+sessionInfo()
+```

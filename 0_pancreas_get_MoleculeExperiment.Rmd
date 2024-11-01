@@ -1,0 +1,92 @@
+---
+title: "ABACBS EMCR Hackathon - 0. Pancreas MoleculeExperiments"
+author: "Shila Ghazanfar"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+       html_document:
+                     toc: true
+                     toc_float:
+                           collapsed: false
+                           smooth_scroll: false
+                     code_folding: hide
+                     fig_width: 10 
+                     fig_height: 8
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      cache.lazy = FALSE)
+
+set.seed(2024)
+```
+
+# Load packages and data
+
+Load scripts and packages, including the `tileBoundaries` function from
+Github.
+
+```{r}
+library(MoleculeExperiment) # for data structure
+source(url("https://raw.githubusercontent.com/SydneyBioX/SpatialUtils/refs/heads/main/R/tileBoundaries.R"))
+```
+
+In this document we take the full data bundle from the 10x Genomics FFPE
+Human Pancreas Xenium dataset, available
+[here](https://www.10xgenomics.com/datasets/ffpe-human-pancreas-with-xenium-multimodal-cell-segmentation-1-standard).
+Note that we download the "Xenium Output Bundle (full)" zip file. We
+then place the unzipped folder into the relative location `../rawData/`.
+
+We read the molecule-level data from this experiment using the
+`readXenium()` function, and retain the `cell` boundary information. In
+addition, we will generate new boundaries using square tiles at 15um
+width. Generating the tile boundaries will take a few minutes to run.
+
+```{r}
+me = readXenium("../rawData/Xenium_V1_human_Pancreas_FFPE_outs",
+                addBoundaries = c("cell"))
+me <- tileBoundaries(me, moleculesAssay = "detected",
+                     boundariesAssay = "tiles",
+                     tile_width = 15)
+me
+```
+
+The MoleculeExperiment object now contains information of both the
+molecules and the cell and tile boundaries.
+
+# Plot and check
+
+We will use a small window of the entire dataset to visualise the
+transcripts, cell boundaries and tile boundaries.
+
+```{r, fig.width = 15, fig.height = 10}
+me_sub = subset_by_extent(me, c(xmin = 3000, xmax = 3200, ymin = 1500, ymax = 1700))
+g = ggplot_me() +
+  geom_polygon_me(me_sub, assayName = "cell", fill = NA, colour = "red") +
+  geom_polygon_me(me_sub, assayName = "tiles", fill = NA, colour = "blue") +
+  geom_point_me(me_sub, colour = "grey", size = 0.1)
+g
+```
+
+# Save the object
+
+We save the MoleculeExperiment object in the `../ProcessedData/` folder.
+In addition, we save the feature names contained in the
+MoleculeExperiment object.
+
+```{r}
+saveRDS(me, file = "../processedData/xenium_pancreas_me.Rds")
+feats = MoleculeExperiment::features(me, "detected")[[1]]
+saveRDS(feats, file = "../processedData/xenium_pancreas_features.Rds")
+```
+
+# Finish
+
+```{r}
+sessionInfo()
+```
