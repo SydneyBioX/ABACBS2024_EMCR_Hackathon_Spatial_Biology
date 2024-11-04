@@ -1,0 +1,156 @@
+---
+title: "ABACBS EMCR Hackathon - 3. Some (unstructured) exploration of hackathon data bundle"
+author: "Shila Ghazanfar"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+       html_document:
+                     toc: true
+                     toc_float:
+                           collapsed: false
+                           smooth_scroll: false
+                     code_folding: hide
+                     fig_width: 10 
+                     fig_height: 8
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      cache.lazy = FALSE)
+
+set.seed(2024)
+```
+
+# Load packages and data
+Load scripts and packages. Load the processed data we generated earlier.
+
+```{r}
+library(MoleculeExperiment) # for data structure
+library(SpatialExperiment) # for data structure
+library(randomForest) # for predictive model
+library(scater) # for plotting
+library(patchwork) # for plotting
+```
+
+```{r}
+pancreas_colours = readRDS("../analysisOutput/pancreas_colours.Rds")
+fit = readRDS("../analysisOutput/sc_cell_type_RF_fit.Rds")
+feats = rownames(fit$importance)
+me = readRDS("../processedData/xenium_pancreas_me.Rds")
+me
+spe_cells = readRDS("../processedData/xenium_pancreas_spe_cells.Rds")
+spe_tiles = readRDS("../processedData/xenium_pancreas_spe_tiles.Rds")
+```
+
+# Plots
+
+Generate plots of cells/tiles in space coloured by predicted cell type
+
+```{r, fig.width = 15, fig.height = 20}
+g = plotReducedDim(spe_cells, "spatial",
+                   colour_by = "cell_type_pred", point_size = 0.1) + 
+  ggtitle("cells") +
+  scale_colour_manual(values = pancreas_colours) +
+  coord_fixed() +
+  plotReducedDim(spe_tiles, "spatial",
+                 colour_by = "cell_type_pred", point_size = 0.1) + 
+  ggtitle("tiles") + 
+  scale_colour_manual(values = pancreas_colours) + 
+  coord_fixed() +
+  plot_layout(nrow = 2) +
+  NULL
+g
+
+
+library(ggpubr)
+g_0 = plotReducedDim(spe_cells, "spatial",
+                   colour_by = "cell_type_pred", point_size = 0.1) + 
+  ggtitle("cells") +
+  scale_colour_manual(values = pancreas_colours) +
+  coord_fixed() + 
+  guides(colour = guide_legend(override.aes = list(size = 10), title = ""))
+
+g_leg = as_ggplot(get_legend(g_0))
+```
+
+# Calculate distances between cells
+
+```{r}
+library(BiocNeighbors)
+
+cells2tiles = queryKNN(reducedDim(spe_tiles, "spatial"),
+                       reducedDim(spe_cells, "spatial"),
+                       k = 1,
+                       get.distance = TRUE)$distance
+
+tiles2cells = queryKNN(reducedDim(spe_cells, "spatial"),
+                       reducedDim(spe_tiles, "spatial"),
+                       k = 1,
+                       get.distance = TRUE)$distance
+
+spe_tiles$dist2cell <- pmin(tiles2cells, 30)
+spe_cells$dist2tile <- cells2tiles
+
+
+g = plotReducedDim(spe_cells, "spatial",
+                   colour_by = "dist2tile", point_size = 0.5) + 
+  ggtitle("cells") +
+  coord_fixed() +
+  plotReducedDim(spe_tiles, "spatial",
+                 colour_by = "dist2cell", point_size = 0.5) + 
+  ggtitle("tiles") + 
+  coord_fixed() +
+  plot_layout(nrow = 2) +
+  NULL
+g
+
+boxplot(spe_tiles$dist2cell ~ spe_tiles$cell_type_pred, las = 2)
+
+```
+
+Make a plot
+
+```{r}
+me_sub = subset_by_extent(me, c(xmin = 3000, xmax = 3200, ymin = 1500, ymax = 1700))
+g2 = ggplot_me() +
+  geom_polygon_me(me_sub, assayName = "cell", fill = NA, colour = "red") +
+  geom_polygon_me(me_sub, assayName = "tiles", fill = NA, colour = "blue") +
+  geom_point_me(me_sub, colour = "grey", size = 0.1)
+g2
+
+spe_cells_sub = spe_cells[, spe_cells$x_location >= 3000 & 
+                            spe_cells$x_location <= 3200 & 
+                            spe_cells$y_location >= 1500 & 
+                            spe_cells$y_location <= 1700]
+
+
+
+spe_tiles_sub = spe_tiles[, spe_tiles$x_location >= 3000 & 
+                            spe_tiles$x_location <= 3200 & 
+                            spe_tiles$y_location >= 1500 & 
+                            spe_tiles$y_location <= 1700]
+
+
+
+g2 + geom_point(aes(x = x_location, y = y_location, colour = cell_type_pred), 
+               data = as.data.frame(colData(spe_cells_sub)),
+               size = 2) + 
+  scale_colour_manual(values = pancreas_colours) +
+  
+  g2 + geom_point(aes(x = x_location, y = y_location, colour = cell_type_pred), 
+                 data = as.data.frame(colData(spe_tiles_sub)),
+                 size = 2) + 
+  scale_colour_manual(values = pancreas_colours) + 
+  g_leg +
+  plot_layout(nrow = 1)
+  
+```
+
+
+# Finish
+
+```{r}
+sessionInfo()
+```
